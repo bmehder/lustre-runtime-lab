@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lustre Runtime Lab</title>
+    <link rel="stylesheet" href="/lustre_runtime_lab.css">
+    <script src="/.lustre/server-hot-reload.js"></script>
+    <script type="module">
+      import { main } from "/lustre_runtime_lab/lustre_runtime_lab.mjs";
+      main();
+    </script>
+  </head>
+  <body>
+    <main class="min-h-screen bg-slate-100 p-6 text-slate-900 sm:p-10">
+      <div class="mx-auto max-w-5xl">
+        <h1 class="text-3xl font-semibold">Lustre Runtime Lab</h1>
+        <p class="mt-2 text-slate-600">Four constructors, then a custom element. Each interactive example has independent browser state.</p>
+        <div class="mt-8 grid gap-6 md:grid-cols-2">
+          <div id="element"></div>
+          <div id="simple"></div>
+          <div id="application"></div>
+          <div id="component"></div>
+        </div>
+        <section class="mt-10" aria-labelledby="web-component-heading">
+          <h2 id="web-component-heading" class="text-2xl font-semibold">05 · Web Component</h2>
+          <p class="mt-2 text-slate-600">The same counter logic, registered once as &lt;lab-counter&gt;. Each element owns its state and shadow DOM.</p>
+          <div class="mt-6 grid gap-6 md:grid-cols-2">
+            <div>
+              <p class="mb-2 text-sm font-medium text-slate-600">Instance A</p>
+              <lab-counter class="block"></lab-counter>
+            </div>
+            <div>
+              <p class="mb-2 text-sm font-medium text-slate-600">Instance B</p>
+              <lab-counter class="block"></lab-counter>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
