@@ -5,10 +5,12 @@ import gleam/erlang/process
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/option.{None}
+import gleam/string
 import lustre
 import mist.{type Connection, type ResponseData}
 import per_connection
 import shared_counter
+import ssr
 
 pub fn main() -> Nil {
   let assert Ok(shared) = lustre.start_server_component(counter.counter(), Nil)
@@ -37,8 +39,25 @@ fn handle_request(
         "text/javascript",
       )
     }
+    ["ssr"] ->
+      response.new(200)
+      |> response.set_header("content-type", "text/html; charset=utf-8")
+      |> response.set_body(
+        mist.Bytes(bytes_tree.from_string(ssr.render(False))),
+      )
+    ["ssr-interactive"] ->
+      response.new(200)
+      |> response.set_header("content-type", "text/html; charset=utf-8")
+      |> response.set_body(mist.Bytes(bytes_tree.from_string(ssr.render(True))))
     ["shared-ws"] -> shared_counter.connect(request, shared)
     ["ws"] -> per_connection.connect(request)
+    [asset] if asset != ".." -> {
+      case string.ends_with(asset, ".js") {
+        True -> serve_file("../dist/" <> asset, "text/javascript")
+        False ->
+          response.new(404) |> response.set_body(mist.Bytes(bytes_tree.new()))
+      }
+    }
     _ -> response.new(404) |> response.set_body(mist.Bytes(bytes_tree.new()))
   }
 }

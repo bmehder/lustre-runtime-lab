@@ -1,235 +1,198 @@
 # Lustre Runtime Lab
 
-A deliberately small counter lab comparing Lustre constructors and, later,
-rendering/runtime models. The constructor comparison and browser custom-element example are implemented.
+A small counter lab comparing Lustre constructors, browser custom elements,
+server components, and SSR with browser startup. Each example stays deliberately
+simple so the runtime boundaries are easy to inspect. This checkpoint uses
+Lustre 5.7.1 and Lustre development tools 2.4.0.
 
-## Run everything on one port
+## Build and run
 
-From the project root:
+Run these commands from the **project root**, not `server/`:
 
 ```sh
-gleam run -m lustre/dev build
+gleam run -m lustre/dev build lustre_runtime_lab ssr_client
 cd server
 gleam run
 ```
 
-Open http://localhost:1234. One BEAM HTTP server serves the entire comparison
-page, its browser JavaScript and CSS, Lustre's server-component client runtime,
-and the WebSocket endpoint. Stop with Ctrl+C. The old Lustre development server
-and separate port 1235 are no longer needed.
+One BEAM HTTP server listens on port 1234. Stop it with Ctrl+C.
 
-`assets/index.html` is the only page shell. The browser entry starts four apps and
-registers the two Web Components. The server component appears below those examples.
-There is no shell runtime and no environment switch in the HTML. The browser
-bundle calls main automatically; the HTML only needs a module script tag.
+| URL | What to inspect |
+| --- | --- |
+| [Comparison page](http://localhost:1234/) | Browser constructors, two Web Components, per-connection and shared server counters |
+| [SSR only](http://localhost:1234/ssr) | Counter HTML in the HTTP response; buttons have no runtime |
+| [SSR with browser startup](http://localhost:1234/ssr-interactive) | The same initial HTML, then an interactive browser counter |
 
-We retain two Gleam packages because the root targets JavaScript and `server/`
-targets Erlang. That is a build boundary, not two websites or two listening ports.
+After browser code, HTML, or CSS edits, rebuild from the root and refresh.
+After server Gleam edits, restart `gleam run` from `server/`. There is no automatic
+reload in this setup. The root package targets JavaScript; `server/` targets
+Erlang. They share one website and port.
 
-After browser code, HTML, or stylesheet edits, rebuild from the root and refresh
-the browser. After server-code edits, restart `gleam run` from `server/`.
-This setup serves built files and does not provide automatic development reloads.
+## Compare the runtime models
 
-## Compare the implementations
+| Example | Where state lives | Where update and view execute | What crosses the network |
+| --- | --- | --- | --- |
+| `element` | No user-defined counter model | Static view constructed in the browser | Initial HTML, JS, and CSS assets |
+| `simple` | Independent browser runtime | Browser; update returns a model | Assets; no counter messages |
+| `application` | Independent browser runtime | Browser; update also returns effects | Assets; no counter messages |
+| `component`, mounted with start | Independent browser runtime | Browser | Assets; no counter messages |
+| Web Component | One browser runtime per custom element | Browser, rendering inside shadow DOM | Assets; no counter messages |
+| Per-connection server component | One BEAM runtime per WebSocket | BEAM | Browser events to server; JSON DOM patches to browser |
+| Shared server component | One BEAM runtime for all subscribers | BEAM | Events to server; patches to connected subscribers |
+| SSR only | No retained counter model | BEAM calls view for each HTTP request | HTML and CSS |
+| SSR with browser startup | Fresh browser model after startup | Initial view on BEAM; subsequent updates and views in browser | HTML, CSS, JS; no counter messages |
 
-| File | Constructor | Counter behavior |
+## Browser constructors
+
+| File | Constructor | Behavior |
 | --- | --- | --- |
-| `src/examples/element.gleam` | `lustre.element(view())` | Static zero, disabled buttons, no counter model or messages |
-| `src/examples/simple.gleam` | `lustre.simple(init, update, view)` | Model and pure update function |
-| `src/examples/application.gleam` | `lustre.application(init, update, view)` | Logs each new count through an effect |
-| `src/examples/component.gleam` | `lustre.component(init, update, view, [])` | Same logging effect, plus component configuration |
+| `src/examples/element.gleam` | `lustre.element(view())` | Static zero and disabled buttons |
+| `src/examples/simple.gleam` | `lustre.simple(init, update, view)` | Int model and pure update |
+| `src/examples/application.gleam` | `lustre.application(init, update, view)` | Logs the new count through an effect |
+| `src/examples/component.gleam` | `lustre.component(init, update, view, [])` | Same logging effect, with component configuration available |
 
-The interactive examples each keep an Int model and increment/decrement messages. Their
-views are intentionally similar and their logic stays in each module so the
-constructor signatures are easy to compare. Each interactive example exposes
-`counter() -> lustre.App(Nil, Model, Msg)` to construct its definition, and its
-`main()` starts that definition in a DOM container. This structure is identical
-across simple, application, and component. There is no shared counter abstraction.
+The interactive modules deliberately keep their own Model, Msg, init, update,
+and view for comparison. Each exposes counter() to construct a definition and
+main() to start it in a DOM container. A definition does not start a runtime.
 
-`simple` supplies empty effects internally. `application` makes effects explicit:
-init and update return `#(Model, Effect(Msg))`. On each click, update computes the
-next count and returns it with `effect.from(fn(_dispatch) { io.println(...) })`.
-Lustre executes the callback to log the new count in the browser console.
+Simple hides empty effects internally. Application makes effects explicit:
+init and update return `#(Model, Effect(Msg))`. Our update returns an
+`effect.from` callback; Lustre executes it to log in the browser console.
+The unused dispatch parameter is how a more involved effect could send a message
+back to the runtime.
 
-The update function describes the side effect; it does not log directly. This
-simple effect does not need to send a message back, so its dispatch parameter is
-unused. All work happens in the browser; no timer or network request is involved.
+An application also has its own update loop and can be mounted multiple times.
+That alone does not distinguish it from a component. The empty component options
+add no behavior here; the next examples demonstrate different ways to run a
+component definition.
 
-`component` returns the same App type and adds component options. `counter()`
-constructs its definition without starting it. It keeps the application example's
-logging effect, using "Component counter" to distinguish the console output.
-Our empty option list adds no behavior; `main` still starts it with `lustre.start`, like the other examples.
+Element has no user-defined Model, Msg, init, or update. Internally its App uses
+Nil state and a trivial update. It is still mounted in the browser with start;
+this example is separate from server-rendered HTML.
 
-All three interactive examples have independent state and update loops. Having
-its own loop does not uniquely distinguish a component from an application.
-A registered custom element will introduce an element lifecycle, shadow DOM,
-and an interface using attributes/properties and events. The separate Web Component example below now demonstrates that registration.
+## Web Component
 
-`element` supplies a fixed view without user-defined Model, Msg, init, or update.
-We still mount it through `lustre.start`; internally Lustre constructs an App
-with Nil state and a trivial update function. It is not SSR or HTML sent by a
-server, and its disabled buttons dispatch nothing.
+`src/examples/web_component.gleam` defines its own counter and calls
+`lustre.register(counter(), "lab-counter")`. It does not call start first.
+Registration defines a custom element; the browser upgrades the two
+`<lab-counter>` tags in `assets/index.html`. Each instance owns independent
+state and resets on reload.
 
-## Execution boundaries
+The component's lifecycle and DOM interface make it usable as an HTML element.
+Attribute/property inputs and outgoing custom events are available but are not
+configured in this lab. Separating definition and registration into two files
+is optional; this example keeps them together.
 
-Gleam compiles the examples to JavaScript. Each browser runtime holds its own
-state, and runs init, update, and view locally. Counter clicks send no application
-traffic to the server. Changing one counter does not change the others. Reload
-resets all interactive counters to zero.
+Lustre renders into an open shadow root. In this version, stylesheet adoption
+is enabled by default, so the document's Tailwind stylesheet is adopted inside
+it. Ordinary CSS does not inherently cross shadow boundaries.
 
-Lustre development tooling builds the browser JavaScript and CSS. The BEAM
-server serves those files and owns the server counter. Only the server-counter
-interactions cross the WebSocket; browser-counter interactions stay local.
-The browser examples have no server-owned state. The separate server example
-below adds a counter and WebSocket transport; shared state and SSR remain later.
+## Server components: same counter, different ownership
 
-## Styling and generated files
+`server/src/counter.gleam` defines the counter used by both server transports.
+The component is started with `lustre.start_server_component`, without a DOM
+selector. Model, init, update, view, and log effects execute on the BEAM.
 
-There is one CSS source: `src/lustre_runtime_lab.css`. Lustre detects and builds
-Tailwind from this project entry. It scans the Gleam sources and
-`assets/index.html` and the server counter view. Build through the default project
-entry so all examples share one stylesheet.
+| Transport file | Route | Runtime ownership |
+| --- | --- | --- |
+| `server/src/per_connection.gleam` | `/ws` | Starts a counter in init_socket; stops it on disconnect |
+| `server/src/shared_counter.gleam` | `/shared-ws` | Subscribes to an existing counter; removes only its subscription on disconnect |
 
-Bun is configured to use the existing installation on PATH. Tailwind uses the
-standalone compiler cached by Lustre in `.lustre/`. The browser receives CSS;
-Tailwind does not participate in the runtime message loop.
+`server/src/lustre_runtime_server.gleam` starts the shared counter once before
+HTTP handling. Shared sockets receive the same runtime handle. Each registers
+its own Subject; Lustre sends rendering updates to subscribers. A newly
+connected client receives the current view.
 
-`.gitignore` excludes `build/`, `dist/`, `.lustre/`, Erlang output, and crash dumps.
-Keep `manifest.toml` tracked to lock dependency versions.
+The page uses `<lustre-server-component route="…">` and Lustre's supplied thin
+browser runtime, served as `/runtime.mjs`. The browser does not run our BEAM
+counter's update or view. It forwards events; the socket handlers decode and
+forward runtime messages, then send JSON rendering patches back. The browser
+applies patches inside the custom element's shadow DOM.
 
-## Checks
+This page initially sends the shell and empty server-component elements.
+Its interactive patch transport is separate from the SSR routes below.
+
+## Network and lifetime experiments
+
+Open the comparison page in two tabs. In DevTools, select Network → WS,
+enable Preserve log, and inspect `/ws` or `/shared-ws` in the Messages pane.
+
+| Experiment | What it demonstrates |
+| --- | --- |
+| Click a browser counter | Local updates produce no counter traffic |
+| Click a per-connection server counter | Events go out and patches come back; the other tab has separate state |
+| Click a shared counter | One server update reaches both clients |
+| Reload one tab | Its per-connection counter resets; shared state survives on the server |
+| Close one tab | The remaining shared client continues using the same runtime |
+| Disconnect and reconnect | Inspect connection behavior and subscription lifetime; a new per-connection runtime starts at zero |
+| Restart the server | All in-memory server models disappear; the new shared runtime starts at zero |
+
+Before refreshing after a restart, inspect the client: its DOM may still display
+an old count after the server process has disappeared. Observe whether the
+connection recovers and the display changes, or whether a refresh is needed.
+Visible HTML is not proof of a live connection or retained server state.
+Shared means shared by connected clients, not saved permanently. There is no
+persistent storage or custom restart supervision in this lab.
+
+## SSR and browser startup
+
+`server/src/ssr.gleam` calls `counter.view(0)` and uses `element.to_string` to
+serialize it. The server sends a full HTML document using the shared stylesheet.
+It does not start a counter runtime, call init/update, or execute counter effects.
+The argument 0 is simply the value supplied to view for each request.
+
+At `/ssr`, there are no scripts or WebSockets. View Page Source or inspect the
+HTTP response to see the counter already present. JavaScript is unnecessary,
+and clicks do nothing.
+
+At `/ssr-interactive`, the page also loads `ssr_client.js` and generated shared
+JavaScript chunks. `src/ssr_client.gleam` contains a matching copy of the server
+view and counter arithmetic, with a browser log prefix. It starts only this
+counter, using ordinary `lustre.start` on `#ssr-counter`.
+
+In Lustre 5.7.1, startup virtualises the existing DOM, reconciles it immediately
+with the first client view, and installs event handlers. Matching elements can
+be reused; mismatches are patched. This is the hydration behavior explored here;
+we do not use a separate hydration API. Inspect the dependency's
+`build/packages/lustre/src/lustre/runtime/client/runtime.ffi.mjs` and
+`vdom/virtualise.ffi.mjs` for the implementation.
+
+The browser's init creates a fresh model at 0. HTML does not transfer a model or
+connect this runtime to the shared BEAM counter. Subsequent update, view, and
+logging execute in the browser. Reload resets it.
+
+Try changing the client init to 5 and rebuilding: the response still contains 0,
+but startup reconciles it to 5. Restore 0 afterward. Clicking changes the live
+DOM while View Page Source still shows the original response. Disabling
+JavaScript restores the static behavior of `/ssr`.
+
+## Files, styling, and checks
+
+`assets/index.html` is the comparison page shell. The SSR module generates its
+own document. The root browser entry mounts the four constructor examples and
+registers the Web Components; the SSR browser entry runs separately.
+
+There is one CSS source, `src/lustre_runtime_lab.css`. Tailwind scans browser
+Gleam, server Gleam, and HTML sources. Both browser entries are built together
+so the project stylesheet is generated once. Bun uses the system installation;
+Tailwind's compiler is cached under `.lustre/`.
+
+`.gitignore` excludes root and server build directories, dist, .lustre, Erlang
+output, and crash dumps. Both manifest.toml files stay tracked to lock versions.
+No additional generated-file rule is needed for SSR.
+
+From the root:
 
 ```sh
 gleam format --check src
 gleam check
-gleam run -m lustre/dev build
+gleam run -m lustre/dev build lustre_runtime_lab ssr_client
 ```
 
-## Step 3: browser Web Component
+From `server/`:
 
-`src/examples/web_component.gleam` contains its own Model, Msg, init, update,
-view, and counter definition for direct comparison. Its main calls:
-
-```gleam
-lustre.register(counter(), "lab-counter")
+```sh
+gleam format --check src
+gleam check
+gleam build
 ```
-
-It does not call `lustre.start`. Registration defines an HTMLElement subclass
-through the browser's customElements registry. The browser upgrades the two
-`<lab-counter>` tags already present in `assets/index.html`. Each element creates
-its own runtime with an initial model of zero. Its counter logic and console-log
-effect mirror `component.gleam`, with a distinct label and log prefix. We duplicate
-the implementation intentionally so each example is self-contained.
-
-A Web Component does not need to be started with `lustre.start` first. One module
-can both define and register it. Separate definition and registration modules are
-useful when multiple entry points need the same definition; they are not required.
-`lustre.start` is only how our separate component example previews its definition
-as an ordinary browser application.
-
-All counter code still runs as JavaScript in the browser. Each custom element
-holds separate runtime state. Click messages, view reconciliation, and console
-logs stay local; no counter data goes to the BEAM or across the network.
-
-Lustre renders inside each element's shadow root. In this installed version,
-shadow roots are open and stylesheet adoption is enabled by default, so the
-existing document Tailwind styles are adopted inside them. This is Lustre
-behavior: ordinary page styles do not inherently cross a shadow boundary.
-No new stylesheet, dependency, or ignore rule is needed.
-
-Try changing A and checking that B and the original component counter stay at
-zero. Inspect a `<lab-counter>` in browser developer tools and expand its
-`#shadow-root (open)` to see the rendered card. Inspect the compiled
-`examples/web_component.mjs` and Lustre's `runtime/client/component.ffi.mjs` to
-follow registration and the custom-element lifecycle. The build tool combines
-the browser code into one bundle, which our BEAM server serves. Gleam's
-component definition alone does not generate a separate HTML template.
-
-Reloading creates new element instances at zero. Attribute/property inputs and
-outgoing custom events are not configured yet. The next section adds a server component. Shared server state and SSR remain
-later steps.
-
-Official APIs:
-- https://lustre.hexdocs.pm/lustre.html#register
-- https://lustre.hexdocs.pm/lustre/component.html#adopt_styles
-
-## Step 4: server component on the BEAM
-
-The separate `server/` Gleam package targets Erlang. Keeping a separate package
-preserves the browser examples and avoids mixing browser and server entry points.
-The duplicated `server/src/counter.gleam` uses the same component definition,
-Model, Msg, update, view, and logging effect. Its runtime is started through
-`lustre.start_server_component`, with no DOM selector.
-
-Use the root build and server startup commands above. Run the server from
-`server/`, because its file routes read the root `dist/` directory.
-
-The common HTML shell contains both `<lab-counter>` tags and a
-`<lustre-server-component route="/ws">` tag. The latter loads Lustre's supplied
-thin browser runtime from `/runtime.mjs`; it does not load our server counter's
-Model, update, or view as browser JavaScript. Lustre's dependency `priv/` directory
-still supplies this prebuilt runtime; we no longer need a separate page under
-`server/priv/`.
-
-Each WebSocket connection starts a fresh BEAM counter process. Model, init,
-update, view, and the logging effect execute there. Logs appear in the server
-terminal. The thin browser runtime forwards event information to `/ws`; our
-socket handler decodes it and forwards Lustre runtime messages. Lustre produces
-DOM patches, which our handler encodes as JSON and sends to the browser.
-The browser applies those patches inside the element's shadow DOM.
-
-Reloading or reconnecting gets a new counter at zero. Disconnecting shuts down
-that connection's counter. Multiple tabs do not share a counter in this step.
-We will change state ownership to support multiple clients sharing one runtime
-in the next step; do not infer shared state merely from running on a server.
-
-This is interactive server rendering through patches, not our later SSR/hydration
-experiment. Server-side HTML here provides only the shell and empty client element.
-
-Checks from `server/`: `gleam format --check src`, `gleam check`, `gleam build`.
-Track `server/manifest.toml`; ignore `server/build/`.
-
-Official starting point:
-https://github.com/lustre-labs/lustre/tree/main/examples/06-server-components/01-basic-setup
-
-## Step 5: multiple clients, one shared server counter
-
-`server/src/counter.gleam` is the single counter definition, containing Model,
-Msg, init, update, view, and the logging effect. Both server examples use it.
-
-`server/src/per_connection.gleam` starts `counter.counter()` inside init_socket
-and shuts down that runtime on disconnect. `server/src/shared_counter.gleam`
-receives an existing runtime and removes only the socket subscription on disconnect.
-Neither transport module defines a different counter. Compare their connect,
-init_socket, Socket, and close_socket functions to see the ownership difference.
-
-The server entry starts `counter.counter()` once for the shared route, then
-handles file serving and routes. Its shared runtime's lifetime belongs to the
-whole server. Both cards deliberately render the same view and log prefix; their
-surrounding page sections identify how each runtime is owned.
-The original per-connection example remains at `/ws`; the new section connects
-to `/shared-ws`. Both appear on the same page and use the same server port.
-
-The server entry starts the shared runtime once, before starting HTTP handling,
-and passes its handle to every shared WebSocket connection. Each socket registers
-its own Subject with that runtime. One click produces one server update and one
-server log; Lustre broadcasts rendering updates to all subscribers. A newly
-connected client gets the current view of the existing model.
-
-On disconnect, the shared example deregisters only that socket's Subject. It
-never shuts down the shared runtime. The model survives a reload and even the
-absence of all clients, while the BEAM server remains running. A server restart
-creates a new model at zero; there is no persistence or restart supervision yet.
-
-Compare with the previous section: its counter is created inside per_connection.init_socket and
-is stopped when that connection closes. Its state is separate in every tab.
-
-Try two tabs. Change the shared counter in either; both should display the same
-count. Reload one: its per-connection counter resets, while its shared counter
-receives the existing count. Close one tab and keep clicking in the other.
-
-The network boundary is unchanged: browser event information goes to the server,
-where update and view run, and JSON DOM patches come back. Client sharing is a
-state-ownership choice, not a change to the counter's arithmetic or transport.
-Stop here before inspecting frames and experimenting with forced disconnects,
-reconnection, and server restarts in detail.

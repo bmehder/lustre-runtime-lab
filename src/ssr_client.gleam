@@ -15,6 +15,11 @@ pub type Msg {
   UserClickedDecrement
 }
 
+pub fn main() -> Nil {
+  let assert Ok(_) = lustre.start(counter(), "#ssr-counter", Nil)
+  Nil
+}
+
 /// Construct the counter without choosing where it will run.
 pub fn counter() -> lustre.App(Nil, Model, Msg) {
   lustre.component(init, update, view, [])
@@ -33,7 +38,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   #(
     next,
     effect.from(fn(_dispatch) {
-      io.println("Server counter: " <> int.to_string(next))
+      io.println("SSR browser counter: " <> int.to_string(next))
     }),
   )
 }
