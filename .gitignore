@@ -1,6 +1,7 @@
 *.beam
 *.ez
 /build
+/server/build
 /dist
 erl_crash.dump
 

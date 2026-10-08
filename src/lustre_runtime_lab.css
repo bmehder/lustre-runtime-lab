@@ -1,3 +1,4 @@
 @import "tailwindcss";
 @source "./**/*.gleam";
 @source "../assets/**/*.html";
+@source "../server/src/**/*.gleam";

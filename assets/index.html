@@ -5,17 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Lustre Runtime Lab</title>
     <link rel="stylesheet" href="/lustre_runtime_lab.css">
-    <script src="/.lustre/server-hot-reload.js"></script>
-    <script type="module">
-      import { main } from "/lustre_runtime_lab/lustre_runtime_lab.mjs";
-      main();
-    </script>
+    <script type="module" src="/lustre_runtime_lab.js"></script>
+    <script type="module" src="/runtime.mjs"></script>
   </head>
   <body>
     <main class="min-h-screen bg-slate-100 p-6 text-slate-900 sm:p-10">
       <div class="mx-auto max-w-5xl">
         <h1 class="text-3xl font-semibold">Lustre Runtime Lab</h1>
-        <p class="mt-2 text-slate-600">Four constructors, then a custom element. Each interactive example has independent browser state.</p>
+        <p class="mt-2 text-slate-600">One counter, different runtimes. Compare browser state with server state on the same page.</p>
         <div class="mt-8 grid gap-6 md:grid-cols-2">
           <div id="element"></div>
           <div id="simple"></div>
@@ -35,6 +32,16 @@
               <lab-counter class="block"></lab-counter>
             </div>
           </div>
+        </section>
+        <section class="mt-10" aria-labelledby="server-component-heading">
+          <h2 id="server-component-heading" class="text-2xl font-semibold">06 · Server Component</h2>
+          <p class="mt-2 text-slate-600">This counter runs on the BEAM. Clicks and DOM patches travel over a WebSocket. Each connection gets its own counter.</p>
+          <lustre-server-component class="mt-6 block" route="/ws"></lustre-server-component>
+        </section>
+        <section class="mt-10" aria-labelledby="shared-component-heading">
+          <h2 id="shared-component-heading" class="text-2xl font-semibold">07 · Shared Server Component</h2>
+          <p class="mt-2 text-slate-600">Open this page in two tabs. Both connect to one server counter: a click updates every tab, and reloading preserves the count.</p>
+          <lustre-server-component class="mt-6 block" route="/shared-ws"></lustre-server-component>
         </section>
       </div>
     </main>
